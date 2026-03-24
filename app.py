@@ -66,37 +66,38 @@ from workflow.audio_separator import separate_audio
 # ─── Helpers ─────────────────────────────────────────────────────────
 model_root = os.path.join(core_dir, "logs")
 
-def get_models():
+def get_voice_model_names():
+    """Return a list of voice model NAMES (folder names that contain a .pth)."""
     if not os.path.exists(model_root): return []
-    return sorted([
-        os.path.join(root, f)
-        for root, _, files in os.walk(model_root)
-        for f in files
-        if f.endswith((".pth", ".uvmp")) and not (f.startswith("G_") or f.startswith("D_"))
-    ])
+    names = []
+    for name in sorted(os.listdir(model_root)):
+        folder = os.path.join(model_root, name)
+        if not os.path.isdir(folder): continue
+        has_pth = any(
+            f.endswith((".pth", ".uvmp")) and not (f.startswith("G_") or f.startswith("D_"))
+            for f in os.listdir(folder)
+        )
+        if has_pth:
+            names.append(name)
+    return names
 
-def get_indexes():
-    if not os.path.exists(model_root): return []
-    return sorted([
-        os.path.join(root, f)
-        for root, _, files in os.walk(model_root)
-        for f in files
-        if f.endswith(".index") and "trained" not in f
-    ])
+def resolve_model_paths(model_name):
+    """Given a model name, return (pth_path, index_path) automatically."""
+    if not model_name: return "", ""
+    folder = os.path.join(model_root, model_name)
+    if not os.path.isdir(folder): return "", ""
+    pth_path = ""
+    index_path = ""
+    for f in os.listdir(folder):
+        full = os.path.join(folder, f)
+        if f.endswith((".pth", ".uvmp")) and not (f.startswith("G_") or f.startswith("D_")):
+            pth_path = full
+        elif f.endswith(".index") and "trained" not in f:
+            index_path = full
+    return pth_path, index_path
 
-def match_index(model_path):
-    if not model_path: return ""
-    model_dir = os.path.dirname(model_path)
-    model_base = os.path.splitext(os.path.basename(model_path))[0].split("_")[0]
-    try:
-        for f in os.listdir(model_dir):
-            if f.endswith(".index") and model_base.lower() in f.lower():
-                return os.path.join(model_dir, f)
-    except Exception: pass
-    return ""
-
-def refresh_models():
-    return gr.update(choices=get_models()), gr.update(choices=get_indexes())
+def refresh_model_names():
+    return gr.update(choices=get_voice_model_names())
 
 def mix_audio(vocals_path, instrumental_path, vocals_volume=1.0, instrumental_volume=1.0):
     voc_data, voc_sr = sf.read(vocals_path)
@@ -202,9 +203,8 @@ def download_custom_pretrained(model, sr):
 # ═══════════════════════════════════════════════════════════════════
 def render_generate_tab():
     with gr.Tab("Song covers"):
-        models = get_models()
-        indexes = get_indexes()
-        default_model = models[0] if models else None
+        voice_model_names = get_voice_model_names()
+        default_voice = voice_model_names[0] if voice_model_names else None
 
         # ── Step 0: Song Retrieval ───────────────────────────────
         with gr.Accordion("Step 0: song retrieval", open=True):
@@ -270,16 +270,14 @@ def render_generate_tab():
 
         # ── Step 2: Vocal Conversion ─────────────────────────────
         with gr.Accordion("Step 2: vocal conversion", open=False):
-            model_file = gr.Dropdown(
-                label="Voice model", choices=models, value=default_model,
-                interactive=True, allow_custom_value=True,
+            # Voice model: directly visible, name-only (like Ultimate RVC)
+            voice_model = gr.Dropdown(
+                label="Voice model",
+                choices=voice_model_names,
+                value=default_voice,
+                interactive=True,
+                info="Select a downloaded voice model.",
             )
-            index_file = gr.Dropdown(
-                label="Index file", choices=indexes,
-                value=match_index(default_model) if default_model else "",
-                interactive=True, allow_custom_value=True,
-            )
-            refresh_btn = gr.Button("🔄 Refresh models", size="sm")
 
             with gr.Accordion("Options", open=False):
                 with gr.Row():
@@ -354,16 +352,19 @@ def render_generate_tab():
             )
             return v, i
 
-        def do_convert(vocal_path, m, idx, p, f0, ir, fr, rmr, prot, emb, fmt, split, at, clean):
+        def do_convert(vocal_path, model_name, p, f0, ir, fr, rmr, prot, emb, fmt, split, at, clean):
             if not vocal_path: raise gr.Error("No vocals to convert!")
-            if not m: raise gr.Error("No voice model selected!")
+            if not model_name: raise gr.Error("No voice model selected!")
+            # Auto-resolve .pth and .index from the model name
+            pth_path, index_path = resolve_model_paths(model_name)
+            if not pth_path: raise gr.Error(f"No .pth file found for model '{model_name}'.")
             out_path = os.path.join(root_dir, "workflow_output", "converted", "converted_vocals.wav")
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             run_infer_script(
                 pitch=p, filter_radius=fr, index_rate=ir,
                 volume_envelope=rmr, protect=prot, f0_method=f0,
                 input_path=vocal_path, output_path=out_path,
-                pth_path=m, index_path=idx or "",
+                pth_path=pth_path, index_path=index_path,
                 split_audio=split, f0_autotune=at, f0_autotune_strength=1.0,
                 clean_audio=clean, clean_strength=0.3, export_format=fmt,
                 f0_file=None, embedder_model=emb, embedder_model_custom=None,
@@ -376,11 +377,9 @@ def render_generate_tab():
 
         retrieve_song_btn.click(do_retrieve, [source_type, yt_url, upload_audio], [input_audio])
         separate_vocals_btn.click(do_separate, [input_audio, sep_model], [vocals_preview, inst_preview])
-        refresh_btn.click(refresh_models, [], [model_file, index_file])
-        model_file.change(lambda m: match_index(m), [model_file], [index_file])
         convert_btn.click(
             do_convert,
-            [vocals_preview, model_file, index_file, pitch, f0_method,
+            [vocals_preview, voice_model, pitch, f0_method,
              index_rate, filter_radius, rms_mix_rate, protect,
              embedder_model, export_format, split_audio, autotune, clean_audio],
             [converted_audio],
