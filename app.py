@@ -6,6 +6,7 @@ import tempfile
 import gradio as gr
 import numpy as np
 import soundfile as sf
+from multiprocessing import cpu_count
 
 # Suppress noisy Windows ProactorEventLoop connection-reset errors.
 try:
@@ -26,10 +27,16 @@ sys.path.append(root_dir)
 os.chdir(core_dir)
 
 # ─── Core Imports ────────────────────────────────────────────────────
-from core import run_infer_script, run_prerequisites_script
+from core import (
+    run_infer_script,
+    run_prerequisites_script,
+    run_preprocess_script,
+    run_extract_script,
+    run_train_script,
+    stop_train_script,
+    run_index_script,
+)
 from rvc.lib.tools.model_download import download_from_url
-from tabs.train.train import train_tab
-from tabs.settings.settings import settings_tab
 from tabs.download.download import (
     get_pretrained_list,
     get_pretrained_sample_rates,
@@ -146,7 +153,7 @@ def download_custom_voice_model(url, model_name):
             break
 
     if not downloaded_zip:
-        raise gr.Error("No ZIP file was found after download. Make sure the URL points to a valid zip.")
+        raise gr.Error("No ZIP file was found after download.")
 
     temp_extract = tempfile.mkdtemp()
     try:
@@ -154,7 +161,7 @@ def download_custom_voice_model(url, model_name):
             zip_ref.extractall(temp_extract)
     except Exception as e:
         shutil.rmtree(temp_extract)
-        raise gr.Error(f"Failed to extract the downloaded zip file: {e}")
+        raise gr.Error(f"Failed to extract zip: {e}")
 
     pth_file = None
     index_file = None
@@ -168,22 +175,18 @@ def download_custom_voice_model(url, model_name):
 
     if not pth_file:
         shutil.rmtree(temp_extract)
-        raise gr.Error("No valid .pth model was found in the downloaded archive.")
+        raise gr.Error("No valid .pth model found in the archive.")
 
     final_folder = os.path.join(model_root, model_name)
     os.makedirs(final_folder, exist_ok=True)
 
-    final_pth = os.path.join(final_folder, f"{model_name}.pth")
-    shutil.move(pth_file, final_pth)
-
+    shutil.move(pth_file, os.path.join(final_folder, f"{model_name}.pth"))
     if index_file:
-        final_index = os.path.join(final_folder, f"{model_name}.index")
-        shutil.move(index_file, final_index)
+        shutil.move(index_file, os.path.join(final_folder, f"{model_name}.index"))
 
     shutil.rmtree(temp_extract)
     os.remove(downloaded_zip)
-
-    return f"[+] Successfully downloaded and set up Voice Model: {model_name}!"
+    return f"[+] Successfully set up Voice Model: {model_name}!"
 
 def update_pretrained_dropdown(model):
     choices = get_pretrained_sample_rates(model)
@@ -191,11 +194,11 @@ def update_pretrained_dropdown(model):
 
 def download_custom_pretrained(model, sr):
     core_download_pretrained_model(model, sr)
-    return f"[+] Successfully downloaded pretrained model {model} ({sr})!"
+    return f"[+] Downloaded pretrained {model} ({sr})!"
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  GENERATE TAB  — Ultimate RVC Accordion Style
+#  GENERATE TAB  — Accordion Style (Ultimate RVC Layout)
 # ═══════════════════════════════════════════════════════════════════
 def render_generate_tab():
     with gr.Tab("Song covers"):
@@ -249,26 +252,19 @@ def render_generate_tab():
                         choices=["UVR-MDX-NET-Voc_FT", "htdemucs_ft"],
                         value="UVR-MDX-NET-Voc_FT",
                         label="Separation model",
-                        info="UVR-MDX is fast and clean. htdemucs_ft is Demucs for complex mixes.",
-                    )
-                    segment_size = gr.Slider(
-                        32, 512, value=256, step=32,
-                        label="Segment size",
-                        info="Larger = more VRAM, potentially better quality.",
+                        info="UVR-MDX is fast and clean. htdemucs_ft for complex mixes.",
                     )
             with gr.Row():
                 separate_vocals_btn = gr.Button("Separate vocals", variant="primary")
             with gr.Row():
                 vocals_preview = gr.Audio(
                     label="Primary stem (Vocals)",
-                    type="filepath",
-                    interactive=False,
+                    type="filepath", interactive=False,
                     waveform_options=gr.WaveformOptions(show_recording_waveform=False),
                 )
                 inst_preview = gr.Audio(
                     label="Secondary stem (Instrumental)",
-                    type="filepath",
-                    interactive=False,
+                    type="filepath", interactive=False,
                     waveform_options=gr.WaveformOptions(show_recording_waveform=False),
                 )
 
@@ -288,27 +284,23 @@ def render_generate_tab():
             with gr.Accordion("Options", open=False):
                 with gr.Row():
                     pitch = gr.Slider(-24, 24, value=0, step=1, label="Pitch (semitones)",
-                                      info="↑ = higher, ↓ = lower. +12 male→female, -12 female→male")
+                                      info="↑ higher, ↓ lower. +12 male→female, -12 female→male")
                     f0_method = gr.Dropdown(
                         choices=["rmvpe", "crepe", "crepe-tiny", "fcpe", "hybrid[rmvpe+fcpe]"],
                         value="rmvpe", label="F0 method",
-                        info="rmvpe: fast & accurate. crepe: singing quality. fcpe: newest."
+                        info="rmvpe: fast & accurate. crepe: singing. fcpe: newest."
                     )
                 with gr.Accordion("Advanced", open=False):
                     with gr.Accordion("Voice synthesis", open=False):
                         with gr.Row():
-                            index_rate = gr.Slider(0, 1, value=0.75, step=0.05, label="Index rate",
-                                                   info="Higher = more model character.")
-                            rms_mix_rate = gr.Slider(0, 1, value=0.25, step=0.05, label="Volume envelope",
-                                                     info="0 = original loudness. 1 = model loudness.")
+                            index_rate = gr.Slider(0, 1, value=0.75, step=0.05, label="Index rate")
+                            rms_mix_rate = gr.Slider(0, 1, value=0.25, step=0.05, label="Volume envelope")
                         with gr.Row():
-                            filter_radius = gr.Slider(0, 10, value=3, step=1, label="Filter radius",
-                                                      info="Median filter. ≥3 reduces breathiness.")
-                            protect = gr.Slider(0, 0.5, value=0.33, step=0.01, label="Protect rate",
-                                                info="Protects voiceless consonants.")
+                            filter_radius = gr.Slider(0, 10, value=3, step=1, label="Filter radius")
+                            protect = gr.Slider(0, 0.5, value=0.33, step=0.01, label="Protect rate")
                     with gr.Accordion("Vocal enrichment", open=False):
                         with gr.Row():
-                            split_audio = gr.Checkbox(label="Split audio (for long files)", value=False)
+                            split_audio = gr.Checkbox(label="Split audio (long files)", value=False)
                         with gr.Row():
                             autotune = gr.Checkbox(label="Autotune", value=False)
                             clean_audio = gr.Checkbox(label="Clean audio (noise reduction)", value=False)
@@ -326,8 +318,7 @@ def render_generate_tab():
                 convert_btn = gr.Button("Convert vocals", variant="primary")
             converted_audio = gr.Audio(
                 label="Converted vocals",
-                type="filepath",
-                interactive=False,
+                type="filepath", interactive=False,
                 waveform_options=gr.WaveformOptions(show_recording_waveform=False),
             )
 
@@ -341,34 +332,25 @@ def render_generate_tab():
                 mix_btn = gr.Button("Mix song cover", variant="primary")
             final_cover = gr.Audio(
                 label="Song cover",
-                type="filepath",
-                interactive=False,
+                type="filepath", interactive=False,
                 waveform_options=gr.WaveformOptions(show_recording_waveform=False),
             )
 
         # ── EVENT WIRING ─────────────────────────────────────────
-        def download_yt(url):
-            if not url: raise gr.Error("Please enter a YouTube URL.")
-            path = get_youtube_audio(url, os.path.join(root_dir, "workflow_output", "downloads"))
-            return path
-
-        def get_local_file(uploaded):
-            return uploaded
-
         def do_retrieve(source_type_val, url_val, local_val):
             if source_type_val == "YouTube URL":
-                return download_yt(url_val)
+                if not url_val: raise gr.Error("Please enter a YouTube URL.")
+                return get_youtube_audio(url_val, os.path.join(root_dir, "workflow_output", "downloads"))
             else:
                 if not local_val: raise gr.Error("Please upload an audio file.")
                 return local_val
 
         def do_separate(audio_path, sep_choice):
-            if not audio_path: raise gr.Error("No audio to separate! Retrieve a song first.")
-            use_demucs = "demucs" in sep_choice.lower()
+            if not audio_path: raise gr.Error("No audio to separate!")
             v, i = separate_audio(
                 input_audio_path=audio_path,
                 output_dir=os.path.join(root_dir, "workflow_output", "separated"),
-                use_demucs=use_demucs,
+                use_demucs="demucs" in sep_choice.lower(),
             )
             return v, i
 
@@ -384,8 +366,7 @@ def render_generate_tab():
                 pth_path=m, index_path=idx or "",
                 split_audio=split, f0_autotune=at, f0_autotune_strength=1.0,
                 clean_audio=clean, clean_strength=0.3, export_format=fmt,
-                f0_file=None, embedder_model=emb,
-                embedder_model_custom=None,
+                f0_file=None, embedder_model=emb, embedder_model_custom=None,
             )
             return out_path
 
@@ -393,11 +374,7 @@ def render_generate_tab():
             if not conv or not inst: raise gr.Error("Need both converted vocals and instrumental!")
             return mix_audio(conv, inst, vv, iv)
 
-        retrieve_song_btn.click(
-            do_retrieve,
-            [source_type, yt_url, upload_audio],
-            [input_audio],
-        )
+        retrieve_song_btn.click(do_retrieve, [source_type, yt_url, upload_audio], [input_audio])
         separate_vocals_btn.click(do_separate, [input_audio, sep_model], [vocals_preview, inst_preview])
         refresh_btn.click(refresh_models, [], [model_file, index_file])
         model_file.change(lambda m: match_index(m), [model_file], [index_file])
@@ -412,33 +389,19 @@ def render_generate_tab():
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  MODELS TAB  — Ultimate RVC Style with Download/Upload/Delete
+#  MODELS TAB
 # ═══════════════════════════════════════════════════════════════════
 def render_models_tab():
-    # ── Download sub-tab ─────────────────────────────────────────
     with gr.Tab("Download"):
         with gr.Accordion("Voice models"):
-            gr.Markdown("")
-            gr.Markdown(
-                "- Enter the download **URL** for a .zip file "
-                "(HuggingFace URL, Google Drive URL, etc.)"
-            )
-            gr.Markdown(
-                "- Enter a unique **Model name** for the voice model."
-            )
-            gr.Markdown(
-                "- Click **Download 🌐** and it will automatically "
-                "extract and rename the `.pth` and `.index` files "
-                "cleanly into `logs/`."
-            )
             with gr.Row():
                 voice_model_url = gr.Textbox(
                     label="Model URL",
-                    info="Should point to a zip file containing a .pth model file and optionally also an .index file.",
+                    info="URL to a zip file containing .pth and optionally .index.",
                 )
                 voice_model_name = gr.Textbox(
                     label="Model name",
-                    info="Enter a unique name for the voice model.",
+                    info="Unique name for this voice model.",
                 )
             with gr.Row(equal_height=True):
                 download_voice_btn = gr.Button("Download 🌐", variant="primary", scale=19)
@@ -457,23 +420,17 @@ def render_models_tab():
 
             with gr.Row():
                 pretrained_model = gr.Dropdown(
-                    label="Pretrained model",
-                    info="Select the pretrained model you want to download.",
-                    choices=pretrained_list,
-                    value=default_pt,
+                    label="Pretrained model", choices=pretrained_list, value=default_pt,
+                    info="Select the pretrained model to download.",
                 )
                 pretrained_sample_rate = gr.Dropdown(
-                    label="Sample rate",
-                    info="Select the sample rate for the pretrained model.",
-                    choices=default_rates,
+                    label="Sample rate", choices=default_rates,
                     value=default_rates[0] if default_rates else None,
+                    info="Select the target sample rate.",
                 )
 
-            pretrained_model.change(
-                fn=update_pretrained_dropdown,
-                inputs=[pretrained_model],
-                outputs=[pretrained_sample_rate],
-            )
+            pretrained_model.change(fn=update_pretrained_dropdown,
+                                    inputs=[pretrained_model], outputs=[pretrained_sample_rate])
 
             with gr.Row(equal_height=True):
                 download_pretrained_btn = gr.Button("Download 🌐", variant="primary", scale=19)
@@ -485,21 +442,272 @@ def render_models_tab():
                 outputs=[download_pretrained_msg],
             )
 
-    # ── Upload sub-tab ───────────────────────────────────────────
     with gr.Tab("Upload"):
         with gr.Accordion("Voice models", open=True):
-            gr.Markdown("")
-            gr.Markdown("1. Find the .pth file for a locally trained RVC model and optionally also a corresponding .index file")
-            gr.Markdown("2. Drag and drop the files below — they will be automatically saved to `logs/<model_name>/`")
+            gr.Markdown("Drag and drop your `.pth` and `.index` files here — "
+                        "they will be automatically saved to `logs/<model_name>/`.")
             dropbox = gr.File(
                 label="Drag your .pth file and .index file into this space.",
                 type="filepath",
             )
-            dropbox.upload(
-                fn=save_drop_model,
-                inputs=[dropbox],
-                outputs=[dropbox],
+            dropbox.upload(fn=save_drop_model, inputs=[dropbox], outputs=[dropbox])
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  TRAIN TAB  — Clean Accordion Style with Optimal Defaults
+# ═══════════════════════════════════════════════════════════════════
+CPU_CORES = cpu_count()
+
+def render_train_tab():
+    # ── Step 1: Dataset Preprocessing ────────────────────────────
+    with gr.Accordion("Step 1: dataset preprocessing", open=True):
+        with gr.Row():
+            train_model_name = gr.Textbox(
+                label="Model name",
+                info="A unique name for your voice model.",
+                placeholder="e.g. MyVoice",
             )
+            dataset_path = gr.Textbox(
+                label="Dataset path",
+                info="Path to folder containing audio files (.wav recommended).",
+                placeholder="/content/dataset",
+            )
+        with gr.Accordion("Options", open=False):
+            with gr.Row():
+                sample_rate = gr.Dropdown(
+                    choices=["32000", "40000", "48000"],
+                    value="40000",
+                    label="Sample rate",
+                    info="40k is the best balance of quality and speed.",
+                )
+                cpu_threads = gr.Slider(
+                    1, CPU_CORES, value=CPU_CORES, step=1,
+                    label="CPU threads",
+                    info="More threads = faster preprocessing.",
+                )
+            with gr.Row():
+                cut_preprocess = gr.Dropdown(
+                    choices=["Skip", "Simple", "Automatic"],
+                    value="Automatic",
+                    label="Audio split method",
+                    info="Automatic splits based on silence. Simple splits by chunk length.",
+                )
+                normalization_mode = gr.Dropdown(
+                    choices=["post_rms", "peak", "none"],
+                    value="post_rms",
+                    label="Normalization",
+                    info="post_rms is recommended for consistent volume.",
+                )
+            with gr.Row():
+                process_effects = gr.Checkbox(label="Process effects (filter audio)", value=True)
+                noise_reduction = gr.Checkbox(label="Noise reduction (clean audio)", value=False)
+                clean_strength = gr.Slider(0, 1, value=0.5, step=0.05, label="Clean strength")
+            with gr.Row():
+                chunk_len = gr.Slider(0.5, 5.0, value=3.0, step=0.5, label="Chunk length (sec)")
+                overlap_len = gr.Slider(0.0, 0.5, value=0.3, step=0.05, label="Overlap length (sec)")
+
+        with gr.Row(equal_height=True):
+            preprocess_btn = gr.Button("Preprocess dataset", variant="primary", scale=2)
+            preprocess_msg = gr.Textbox(label="Output message", interactive=False, scale=3)
+
+        preprocess_btn.click(
+            run_preprocess_script,
+            inputs=[train_model_name, dataset_path, sample_rate, cpu_threads,
+                    cut_preprocess, process_effects, noise_reduction,
+                    clean_strength, chunk_len, overlap_len, normalization_mode],
+            outputs=[preprocess_msg],
+        )
+
+    # ── Step 2: Feature Extraction ───────────────────────────────
+    with gr.Accordion("Step 2: feature extraction", open=False):
+        with gr.Row():
+            extract_model_name = gr.Textbox(
+                label="Model name",
+                info="Must match the name from Step 1.",
+                placeholder="e.g. MyVoice",
+            )
+        with gr.Accordion("Options", open=False):
+            with gr.Row():
+                extract_f0 = gr.Dropdown(
+                    choices=["rmvpe", "crepe", "crepe-tiny", "fcpe"],
+                    value="rmvpe",
+                    label="F0 method",
+                    info="rmvpe is fast & accurate. crepe for singing quality.",
+                )
+                extract_embedder = gr.Dropdown(
+                    choices=["contentvec", "contentvec_base", "chinese-hubert-base",
+                             "japanese-hubert-base", "spin"],
+                    value="contentvec",
+                    label="Embedder model",
+                    info="contentvec is the standard choice.",
+                )
+            with gr.Row():
+                extract_sr = gr.Dropdown(
+                    choices=["32000", "40000", "48000"],
+                    value="40000",
+                    label="Sample rate",
+                    info="Must match the sample rate from Step 1.",
+                )
+                extract_gpu = gr.Slider(0, 7, value=0, step=1, label="GPU index")
+                extract_cpu = gr.Slider(1, CPU_CORES, value=CPU_CORES, step=1, label="CPU threads")
+            with gr.Row():
+                extract_vocoder = gr.Dropdown(
+                    choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+                    value="HiFi-GAN",
+                    label="Vocoder",
+                    info="HiFi-GAN is the standard. MRF or RefineGAN for experimental quality.",
+                )
+                include_mutes = gr.Slider(0, 10, value=2, step=1, label="Include mutes",
+                                          info="Number of mute audio segments to include.")
+
+        with gr.Row(equal_height=True):
+            extract_btn = gr.Button("Extract features", variant="primary", scale=2)
+            extract_msg = gr.Textbox(label="Output message", interactive=False, scale=3)
+
+        # Map vocoder names to architecture IDs used by extract script
+        vocoder_map = {"HiFi-GAN": 0, "MRF HiFi-GAN": 1, "RefineGAN": 2}
+
+        def do_extract(name, f0, cpu, gpu, sr, vocoder, embedder, mutes):
+            if not name: raise gr.Error("Please enter a model name.")
+            voc_arch = vocoder_map.get(vocoder, 0)
+            return run_extract_script(name, f0, int(cpu), int(gpu), int(sr),
+                                      voc_arch, embedder, None, int(mutes))
+
+        extract_btn.click(
+            do_extract,
+            inputs=[extract_model_name, extract_f0, extract_cpu, extract_gpu,
+                    extract_sr, extract_vocoder, extract_embedder, include_mutes],
+            outputs=[extract_msg],
+        )
+
+    # ── Step 3: Model Training ───────────────────────────────────
+    with gr.Accordion("Step 3: model training", open=False):
+        with gr.Row():
+            training_model_name = gr.Textbox(
+                label="Model name",
+                info="Must match the name from Step 1 & 2.",
+                placeholder="e.g. MyVoice",
+            )
+        with gr.Accordion("Options", open=False):
+            with gr.Row():
+                total_epochs = gr.Slider(1, 2000, value=500, step=10,
+                                         label="Total epochs",
+                                         info="300-800 is typical. More = longer training, risk of overtraining.")
+                batch_size = gr.Slider(1, 64, value=8, step=1,
+                                       label="Batch size",
+                                       info="Higher = faster but needs more VRAM. 8 for T4, 12-16 for A100.")
+            with gr.Row():
+                train_sr = gr.Dropdown(
+                    choices=["32000", "40000", "48000"],
+                    value="40000",
+                    label="Sample rate",
+                    info="Must match previous steps.",
+                )
+                save_interval = gr.Slider(1, 100, value=25, step=5,
+                                           label="Save interval (epochs)",
+                                           info="How often to save checkpoints.")
+            with gr.Row():
+                train_gpu = gr.Slider(0, 7, value=0, step=1, label="GPU index")
+                vocoder_train = gr.Dropdown(
+                    choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+                    value="HiFi-GAN",
+                    label="Vocoder",
+                )
+            with gr.Accordion("Advanced", open=False):
+                with gr.Row():
+                    pretrained = gr.Checkbox(label="Use pretrained model", value=True,
+                                             info="Highly recommended. Dramatically improves quality.")
+                    save_only_latest = gr.Checkbox(label="Save only latest checkpoint", value=True,
+                                                   info="Saves disk space by keeping only the latest G/D files.")
+                    save_weights = gr.Checkbox(label="Save weight files (.pth)", value=True,
+                                               info="Required to use the model for inference.")
+                with gr.Row():
+                    use_warmup = gr.Checkbox(label="Learning rate warmup", value=False)
+                    warmup_duration = gr.Slider(1, 50, value=5, step=1, label="Warmup duration (epochs)")
+                    cleanup = gr.Checkbox(label="Clean up old files on start", value=False)
+                with gr.Row():
+                    index_algorithm = gr.Dropdown(
+                        choices=["Auto", "Faiss", "KMeans"],
+                        value="Auto",
+                        label="Index algorithm",
+                    )
+
+        with gr.Row(equal_height=True):
+            train_btn = gr.Button("Train model", variant="primary", scale=2)
+            stop_btn = gr.Button("Stop training", variant="stop", scale=1)
+            train_msg = gr.Textbox(label="Output message", interactive=False, scale=3)
+
+        def do_train(name, save_freq, save_latest, save_w, epochs, sr, bs, gpu,
+                     warmup, warmup_dur, use_pt, do_cleanup, idx_algo, vocoder):
+            if not name: raise gr.Error("Please enter a model name.")
+            return run_train_script(
+                model_name=name,
+                epoch_save_frequency=int(save_freq),
+                save_only_latest_net_models=save_latest,
+                save_weight_models=save_w,
+                total_epoch_count=int(epochs),
+                sample_rate=int(sr),
+                batch_size=int(bs),
+                gpu=int(gpu),
+                use_warmup=warmup,
+                warmup_duration=int(warmup_dur),
+                pretrained=use_pt,
+                cleanup=do_cleanup,
+                index_algorithm=idx_algo,
+                vocoder=vocoder,
+            )
+
+        train_btn.click(
+            do_train,
+            inputs=[training_model_name, save_interval, save_only_latest, save_weights,
+                    total_epochs, train_sr, batch_size, train_gpu,
+                    use_warmup, warmup_duration, pretrained, cleanup,
+                    index_algorithm, vocoder_train],
+            outputs=[train_msg],
+        )
+        stop_btn.click(stop_train_script)
+
+    # ── Step 4: Generate Index (optional) ────────────────────────
+    with gr.Accordion("Step 4: generate index (optional)", open=False):
+        with gr.Row():
+            index_model_name = gr.Textbox(
+                label="Model name",
+                info="Must match the trained model name.",
+                placeholder="e.g. MyVoice",
+            )
+            index_algo = gr.Dropdown(
+                choices=["Auto", "Faiss", "KMeans"],
+                value="Auto",
+                label="Index algorithm",
+            )
+        with gr.Row(equal_height=True):
+            index_btn = gr.Button("Generate index", variant="primary", scale=2)
+            index_msg = gr.Textbox(label="Output message", interactive=False, scale=3)
+
+        def do_index(name, algo):
+            if not name: raise gr.Error("Please enter a model name.")
+            return run_index_script(name, algo)
+
+        index_btn.click(do_index, inputs=[index_model_name, index_algo], outputs=[index_msg])
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SETTINGS TAB  — Clean Accordion Style
+# ═══════════════════════════════════════════════════════════════════
+def render_settings_tab():
+    with gr.Accordion("About NEWRVC", open=True):
+        gr.Markdown(
+            "### NEWRVC ❤️\n"
+            "A high-performance RVC voice conversion app with a clean, modern interface.\n\n"
+            "- **Core Engine**: [codename-rvc-fork-4](https://github.com/codename0og/codename-rvc-fork-4)\n"
+            "- **UI Inspiration**: [Ultimate RVC](https://github.com/JackismyShephard/ultimate-rvc)\n"
+            "- **Workflow**: yt-dlp, audio-separator (MDX / Demucs)\n"
+        )
+    with gr.Accordion("Device info", open=False):
+        import torch
+        device = "CUDA" if torch.cuda.is_available() else "CPU"
+        gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
+        gr.Markdown(f"**Device**: {device}\n\n**GPU**: {gpu_name}\n\n**CPU threads**: {CPU_CORES}")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -515,10 +723,10 @@ with gr.Blocks(title="NEWRVC ❤️", theme=theme, css=css) as app:
         render_models_tab()
 
     with gr.Tab("Train", elem_id="train-tab"):
-        train_tab()
+        render_train_tab()
 
     with gr.Tab("Settings", elem_id="settings-tab"):
-        settings_tab()
+        render_settings_tab()
 
 
 if __name__ == "__main__":
