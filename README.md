@@ -39,7 +39,7 @@
 
 1. **Clone the Repo**
    ```bash
-   git clone https://github.com/MIGHTYBIT/NEWRVC.git
+   git clone https://github.com/DDME36/NEWRVC.git
    cd NEWRVC
    ```
 
