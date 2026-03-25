@@ -434,6 +434,14 @@ def run(
     if device.type == "cuda":
         net_g = net_g.cuda(device_id)
         net_d = net_d.cuda(device_id)
+        # Apply standard Pytorch 2.x optimizations if not using multi-gpu distributed training overhead
+        if n_gpus <= 1:
+            try:
+                logger.info("Applying torch.compile (Inductor) for training speedup...")
+                net_g = torch.compile(net_g, backend="inductor")
+                net_d = torch.compile(net_d, backend="inductor")
+            except Exception as e:
+                logger.warning("torch.compile failed, continuing with eager mode: %s", e)
     else:
         net_g = net_g.to(device)
         net_d = net_d.to(device)
@@ -1033,6 +1041,13 @@ def train_and_evaluate(
             if custom_save_every_weights:
                 model_add.append(
                     os.path.join(experiment_dir, f"{model_name}_{epoch}.pth"),
+                )
+            
+            # Auto-tuning Best Checkpoint Saver
+            if lowest_g_value["epoch"] == epoch:
+                logger.info(f"New overall best generator loss achieved ({lowest_g_value['value']:.4f}). Saving best_epoch.pth...")
+                model_add.append(
+                    os.path.join(experiment_dir, f"{model_name}_best_epoch.pth"),
                 )
         else:
             summarize(

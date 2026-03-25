@@ -1034,7 +1034,7 @@ def run_pipeline(
     vocals_track, instrumentals_track = separate_audio(
         song,
         song_dir,
-        SeparationModel.UVR_MDX_NET_VOC_FT,
+        SeparationModel.BS_ROFORMER_VIPERX_1297,
         SegmentSize.SEG_512,
     )
     display_progress(
@@ -1045,7 +1045,7 @@ def run_pipeline(
     backup_vocals_track, main_vocals_track = separate_audio(
         vocals_track,
         song_dir,
-        SeparationModel.UVR_MDX_NET_KARA_2,
+        SeparationModel.MDX23C_8KFFT_INSTVOC_HQ,
         SegmentSize.SEG_512,
     )
     display_progress("[~] De-reverbing vocals...", 3 / 9, progress_bar)

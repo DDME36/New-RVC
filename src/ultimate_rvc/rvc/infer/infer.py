@@ -518,6 +518,14 @@ class VoiceConverter:
             self.net_g = self.net_g.to(self.config.device).float()
             self.net_g.eval()
 
+            # Apply PyTorch 2.0+ Compilation for massive inference speedup if on GPU
+            if torch.cuda.is_available() and getattr(self.config, "device", "cuda") != "cpu":
+                try:
+                    logger.info("Applying torch.compile (Inductor) to Vocoder for generation speedup...")
+                    self.net_g = torch.compile(self.net_g, backend="inductor", mode="max-autotune")
+                except Exception as e:
+                    logger.warning("torch.compile failed, falling back to eager mode: %s", e)
+
     def setup_vc_instance(self):
         """
         Sets up the voice conversion pipeline instance based on the target sampling rate and configuration.

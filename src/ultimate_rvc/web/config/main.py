@@ -318,7 +318,7 @@ class MultiStepSongGenerationConfig(SongGenerationConfig):
     separation_model: DropdownConfig = DropdownConfig(
         label="Separation model",
         info="The model to use for audio separation.",
-        value=SeparationModel.UVR_MDX_NET_VOC_FT,
+        value=SeparationModel.BS_ROFORMER_VIPERX_1297,
         choices=list(SeparationModel),
     )
     segment_size: RadioConfig = RadioConfig(

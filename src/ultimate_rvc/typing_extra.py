@@ -17,6 +17,8 @@ class SeparationModel(StrEnum):
     UVR_MDX_NET_VOC_FT = "UVR-MDX-NET-Voc_FT.onnx"
     UVR_MDX_NET_KARA_2 = "UVR_MDXNET_KARA_2.onnx"
     REVERB_HQ_BY_FOXJOY = "Reverb_HQ_By_FoxJoy.onnx"
+    BS_ROFORMER_VIPERX_1297 = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+    MDX23C_8KFFT_INSTVOC_HQ = "MDX23C-8KFFT-InstVoc_HQ.ckpt"
 
 
 class SegmentSize(IntEnum):
