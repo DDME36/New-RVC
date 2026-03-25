@@ -1,5 +1,5 @@
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -16,14 +16,89 @@ from torch.utils.checkpoint import checkpoint
 import einops
 import numpy as np
 
-from ultimate_rvc.rvc.lib.algorithm.residuals import ResBlock, ResBlock_SnakeBeta
+from ultimate_rvc.rvc.lib.algorithm.residuals import ResBlock
 from ultimate_rvc.rvc.lib.algorithm.conformer.conformer import Conformer
+from ultimate_rvc.rvc.lib.algorithm.conformer.activations import SnakeBeta
 
 from ultimate_rvc.rvc.lib.algorithm.conformer.stft import TorchSTFT
+from ultimate_rvc.rvc.lib.algorithm.commons import get_padding
 
 # DEBUG
 import torchaudio
 import sys
+
+def create_conv1d_layer(channels, kernel_size, dilation):
+    from torch.nn.utils.parametrizations import weight_norm
+    return weight_norm(
+        torch.nn.Conv1d(
+            channels,
+            channels,
+            kernel_size,
+            1,
+            dilation=dilation,
+            padding=get_padding(kernel_size, dilation),
+        )
+    )
+
+def apply_mask(tensor: torch.Tensor, mask: Optional[torch.Tensor]):
+    return tensor * mask if mask is not None else tensor
+
+class ResBlock_SnakeBeta(torch.nn.Module):
+    """
+    A residual block module that applies a series of 1D convolutional layers
+    with residual connections using SnakeBeta activation.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        kernel_size: int = 3,
+        dilations: Tuple[int, ...] = (1, 3, 5),
+    ):
+        super().__init__()
+        self.convs1 = self._create_convs(channels, kernel_size, dilations)
+        self.convs2 = self._create_convs(channels, kernel_size, [1] * len(dilations))
+
+        # Use SnakeBeta activation functions for each layer
+        self.snake_acts1 = torch.nn.ModuleList([
+            SnakeBeta(channels, alpha_trainable=True, alpha_logscale=True)
+            for _ in dilations
+        ])
+        self.snake_acts2 = torch.nn.ModuleList([
+            SnakeBeta(channels, alpha_trainable=True, alpha_logscale=True)
+            for _ in dilations
+        ])
+
+    @staticmethod
+    def _create_convs(channels: int, kernel_size: int, dilations: Tuple[int, ...]):
+        layers = torch.nn.ModuleList(
+            [create_conv1d_layer(channels, kernel_size, d) for d in dilations]
+        )
+        return layers
+
+    def forward(self, x: torch.Tensor, x_mask: torch.Tensor = None):
+        for conv1, conv2, act1, act2 in zip(self.convs1, self.convs2, self.snake_acts1, self.snake_acts2, strict=False):
+            x_residual = x
+
+            xt = act1(x)  # SnakeBeta activation 1
+            xt = apply_mask(xt, x_mask)
+            xt = conv1(xt)
+
+            xt = act2(xt)  # SnakeBeta activation 2
+            xt = apply_mask(xt, x_mask)
+            xt = conv2(xt)
+
+            x = xt + x_residual
+            x = apply_mask(x, x_mask)
+
+        return x
+
+    def remove_weight_norm(self):
+        from torch.nn.utils import remove_weight_norm
+        from itertools import chain
+        for conv in chain(self.convs1, self.convs2):
+            remove_weight_norm(conv)
+
 
 class SineGenerator(torch.nn.Module):
     def __init__(
