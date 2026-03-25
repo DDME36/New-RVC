@@ -43,6 +43,7 @@ dependencies = [
   "tensorboardX==2.6.4",
   "tensorboard==2.20.0",
   "torch-tb-profiler==0.4.3",
+  "ring-attention-pytorch==0.3.12",
 
   # Audio
   "static-ffmpeg==2.13",
