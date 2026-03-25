@@ -507,7 +507,15 @@ def _get_youtube_audio(
             raise YoutubeUrlError(url, playlist=False)
         file = ydl.prepare_filename(result)
 
-    return Path(file).with_suffix(".wav")
+    file_path = Path(file).with_suffix(".wav")
+    sanitized_name = file_path.name.replace("#", "").replace("?", "").replace("&", "")
+    if sanitized_name != file_path.name:
+        sanitized_path = file_path.with_name(sanitized_name)
+        if file_path.exists():
+            file_path.rename(sanitized_path)
+        return sanitized_path
+
+    return file_path
 
 
 def retrieve_song(source: str, cookiefile: StrPath | None = None) -> tuple[Path, Path]:
@@ -551,6 +559,7 @@ def retrieve_song(source: str, cookiefile: StrPath | None = None) -> tuple[Path,
         else:
             source_path = Path(source)
             song_name = f"00_{source_path.name}"
+            song_name = song_name.replace("#", "").replace("?", "").replace("&", "")
             song_path = song_dir_path / song_name
             shutil.copyfile(source_path, song_path)
 
