@@ -66,6 +66,12 @@ def render(total_config: TotalConfig) -> None:
         _render_step_3(total_config)
 
 
+def _populate_from_mic(dataset_name: str, mic_audio: str | None):
+    if not mic_audio:
+        raise gr.Error("No audio recorded to add to dataset.")
+    return populate_dataset(dataset_name, [mic_audio])
+
+
 def _render_step_1(total_config: TotalConfig) -> None:
     tab_config = total_config.training.multi_step
 
@@ -75,11 +81,19 @@ def _render_step_1(total_config: TotalConfig) -> None:
             tab_config.dataset_type.instantiate()
             tab_config.dataset.instance.render()
             tab_config.dataset_name.instantiate()
-        audio_files = gr.File(
-            file_count="multiple",
-            label="Audio files",
-            file_types=[f".{e.value}" for e in AudioExt],
-        )
+        with gr.Row():
+            audio_files = gr.File(
+                file_count="multiple",
+                label="Audio files",
+                file_types=[f".{e.value}" for e in AudioExt],
+            )
+            with gr.Column():
+                audio_mic = gr.Audio(
+                    sources=["microphone"],
+                    type="filepath",
+                    label="Record audio",
+                )
+                audio_mic_btn = gr.Button("Add recording to dataset")
 
         tab_config.dataset_type.instance.change(
             _toggle_dataset_input,
@@ -87,6 +101,8 @@ def _render_step_1(total_config: TotalConfig) -> None:
             outputs=[
                 tab_config.dataset_name.instance,
                 audio_files,
+                audio_mic,
+                audio_mic_btn,
                 tab_config.dataset.instance,
             ],
             show_progress="hidden",
@@ -105,6 +121,31 @@ def _render_step_1(total_config: TotalConfig) -> None:
         ).then(
             partial(update_value, None),
             outputs=audio_files,
+            show_progress="hidden",
+        ).then(
+            partial(update_dropdowns, get_audio_datasets, 1, value_indices=[0]),
+            inputs=current_dataset,
+            outputs=tab_config.dataset.instance,
+            show_progress="hidden",
+        ).then(
+            partial(update_dropdowns, get_named_audio_datasets, 1, [], [0]),
+            outputs=total_config.management.audio.dataset.instance,
+            show_progress="hidden",
+        )
+
+        audio_mic_btn.click(
+            exception_harness(
+                _populate_from_mic,
+                info_msg=(
+                    "[+] Recorded audio successfully added to the dataset with the"
+                    " provided name!"
+                ),
+            ),
+            inputs=[tab_config.dataset_name.instance, audio_mic],
+            outputs=current_dataset,
+        ).then(
+            partial(update_value, None),
+            outputs=audio_mic,
             show_progress="hidden",
         ).then(
             partial(update_dropdowns, get_audio_datasets, 1, value_indices=[0]),
@@ -539,9 +580,9 @@ def _render_step_3_device_settings(tab_config: MultiStepTrainingConfig) -> None:
 
 def _toggle_dataset_input(
     dataset_type: DatasetType,
-) -> tuple[gr.Textbox, gr.File, gr.Dropdown]:
+) -> tuple[gr.Textbox, gr.File, gr.Audio, gr.Button, gr.Dropdown]:
     """
-    Toggle the visibility of three different dataset input components
+    Toggle the visibility of different dataset input components
     based on whether the selected dataset type indicates creating a new
     dataset or using an existing one.
 
@@ -553,8 +594,8 @@ def _toggle_dataset_input(
 
     Returns
     -------
-    tuple[gr.Textbox, gr.File, gr.Dropdown]
-        A tuple containing the three dataset input components with
+    tuple[gr.Textbox, gr.File, gr.Audio, gr.Button, gr.Dropdown]
+        A tuple containing the dataset input components with
         updated visibility.
 
     """
@@ -565,6 +606,8 @@ def _toggle_dataset_input(
             value="My dataset",  # TODO this should be component_config.value
         ),
         gr.File(visible=is_new_dataset, value=None),
+        gr.Audio(visible=is_new_dataset, value=None),
+        gr.Button(visible=is_new_dataset),
         gr.Dropdown(visible=not is_new_dataset, value=None),
     )
 
