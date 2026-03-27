@@ -12,6 +12,7 @@ from multiprocessing import cpu_count
 
 import gradio as gr
 
+from ultimate_rvc.common import TRAINING_MODELS_DIR
 from ultimate_rvc.core.manage.audio import get_audio_datasets, get_named_audio_datasets
 from ultimate_rvc.core.manage.models import (
     get_training_model_names,
@@ -70,6 +71,25 @@ def _populate_from_mic(dataset_name: str, mic_audio: str | None):
     if not mic_audio:
         raise gr.Error("No audio recorded to add to dataset.")
     return populate_dataset(dataset_name, [mic_audio])
+
+
+def _list_sliced_audio(model_name: str) -> gr.Dropdown:
+    """List all sliced audio files for a given training model."""
+    if not model_name:
+        return gr.Dropdown(choices=[], value=None)
+    sliced_dir = TRAINING_MODELS_DIR / model_name.strip() / "sliced_audios"
+    if not sliced_dir.is_dir():
+        raise gr.Error(f"No sliced audio found for model '{model_name}'. Run preprocessing first.")
+    files = sorted(sliced_dir.glob("*.wav"))
+    if not files:
+        raise gr.Error("Sliced audio directory is empty.")
+    choices = [(f.name, str(f)) for f in files]
+    return gr.Dropdown(choices=choices, value=str(files[0]), label=f"Sliced clips ({len(files)} total)")
+
+
+def _load_sliced_clip(file_path: str | None) -> str | None:
+    """Return the file path for the audio player."""
+    return file_path if file_path else None
 
 
 def _render_step_1(total_config: TotalConfig) -> None:
@@ -255,6 +275,30 @@ def _render_step_1(total_config: TotalConfig) -> None:
                 inputs=tab_config.preprocess_model.instance,
                 outputs=tab_config.extract_model.instance,
                 show_progress="hidden",
+            )
+
+        with gr.Accordion("🔍 Preview sliced audio", open=False):
+            with gr.Row():
+                preview_load_btn = gr.Button("Load sliced clips", variant="secondary", scale=1)
+                preview_dropdown = gr.Dropdown(
+                    label="Select a clip to preview",
+                    interactive=True,
+                    scale=3,
+                )
+            preview_audio = gr.Audio(
+                label="Sliced clip preview",
+                interactive=False,
+                type="filepath",
+            )
+            preview_load_btn.click(
+                _list_sliced_audio,
+                inputs=tab_config.preprocess_model.instance,
+                outputs=preview_dropdown,
+            )
+            preview_dropdown.change(
+                _load_sliced_clip,
+                inputs=preview_dropdown,
+                outputs=preview_audio,
             )
             reset_preprocess_btn.click(
                 lambda: [
