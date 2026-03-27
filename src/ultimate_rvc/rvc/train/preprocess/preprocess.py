@@ -50,15 +50,18 @@ ALPHA = 0.75
 HIGH_PASS_CUTOFF = 48
 SAMPLE_RATE_16K = 16000
 RES_TYPE = "soxr_vhq"
+FADE_SAMPLES = 0.03  # 30ms fade-in/fade-out to prevent click artifacts
+MIN_SEGMENT_DURATION = 0.4  # Discard segments shorter than 400ms (just clicks/breaths)
+SILENCE_RMS_THRESHOLD = 0.003  # Discard segments that are near-silent (pure noise)
 
 
 class PreProcess:
     def __init__(self, sr: int, exp_dir: str):
         self.slicer = Slicer(
             sr=sr,
-            threshold=-42,
-            min_length=1500,
-            min_interval=400,
+            threshold=-35,       # was -42 → raised to better detect speech pauses
+            min_length=2000,     # was 1500 → minimum 2s segments = less mid-phrase cuts
+            min_interval=500,    # was 400 → require 500ms silence gap to split
             hop_size=15,
             max_sil_kept=500,
         )
@@ -80,11 +83,42 @@ class PreProcess:
         pathlib.Path(self.gt_wavs_dir).mkdir(parents=True)
         pathlib.Path(self.wavs16k_dir).mkdir(parents=True)
 
+    @staticmethod
+    def _remove_dc_offset(audio: np.ndarray) -> np.ndarray:
+        """Remove DC offset (constant bias) without touching voice timbre."""
+        return audio - np.mean(audio)
+
     def _normalize_audio(self, audio: np.ndarray):
         tmp_max = np.abs(audio).max()
         if tmp_max > 2.5:
             return None
         return (audio / tmp_max * (MAX_AMPLITUDE * ALPHA)) + (1 - ALPHA) * audio
+
+    def _apply_fade(self, audio: np.ndarray) -> np.ndarray:
+        """Apply a short cosine fade-in and fade-out to prevent edge clicks."""
+        fade_len = int(self.sr * FADE_SAMPLES)
+        if len(audio) < fade_len * 2:
+            return audio
+        fade_in = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+        fade_out = np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+        # Apply cosine-shaped curve for smoother transition
+        fade_in = (1 - np.cos(fade_in * np.pi)) / 2
+        fade_out = (1 - np.cos(fade_out * np.pi)) / 2
+        audio = audio.copy()
+        audio[:fade_len] *= fade_in
+        audio[-fade_len:] *= fade_out
+        return audio
+
+    @staticmethod
+    def _is_usable_segment(audio: np.ndarray, sr: int) -> bool:
+        """Check if a segment is long enough and has actual audio content."""
+        duration = len(audio) / sr
+        if duration < MIN_SEGMENT_DURATION:
+            return False  # too short — likely a click, breath, or mic bump
+        rms = np.sqrt(np.mean(audio ** 2))
+        if rms < SILENCE_RMS_THRESHOLD:
+            return False  # near-silent — just noise floor
+        return True
 
     def process_audio_segment(
         self,
@@ -97,8 +131,18 @@ class PreProcess:
         if normalized_audio is None:
             logger.info("%d-%d-%d-filtered", sid, idx0, idx1)
             return
+        # Skip segments that are too short or near-silent
+        if not self._is_usable_segment(normalized_audio, self.sr):
+            logger.info(
+                "%d-%d-%d-skipped (too short or silent)", sid, idx0, idx1,
+            )
+            return
         if normalization_mode == "post":
             normalized_audio = self._normalize_audio(normalized_audio)
+        # Remove DC offset (constant bias) — does NOT change voice character
+        normalized_audio = self._remove_dc_offset(normalized_audio)
+        # Apply fade to prevent click artifacts at segment edges
+        normalized_audio = self._apply_fade(normalized_audio)
         wavfile.write(
             os.path.join(self.gt_wavs_dir, f"{sid}_{idx0}_{idx1}.wav"),
             self.sr,
@@ -177,6 +221,9 @@ class PreProcess:
             audio = load_audio(path, self.sr)
             audio_length = librosa.get_duration(y=audio, sr=self.sr)
 
+            # Always remove DC offset first — zero-cost, zero voice alteration
+            audio = self._remove_dc_offset(audio)
+
             if process_effects:
                 audio = signal.lfilter(self.b_high, self.a_high, audio)
             if normalization_mode == "pre":
@@ -208,7 +255,6 @@ class PreProcess:
                 )
             elif cut_preprocess == "Automatic":
                 idx1 = 0
-                # legacy
                 for audio_segment in self.slicer.slice(audio):
                     i = 0
                     while True:
