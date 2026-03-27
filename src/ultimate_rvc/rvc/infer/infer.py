@@ -500,8 +500,13 @@ class VoiceConverter:
         Sets up the network configuration based on the loaded checkpoint.
         """
         if self.cpt is not None:
+            # Strip torch.compile's `_orig_mod.` prefix if present in exported weights
+            self.cpt["weight"] = {
+                k.replace("_orig_mod.", ""): v for k, v in self.cpt["weight"].items()
+            }
             self.tgt_sr = self.cpt["config"][-1]
-            self.cpt["config"][-3] = self.cpt["weight"]["emb_g.weight"].shape[0]
+            if "emb_g.weight" in self.cpt["weight"]:
+                self.cpt["config"][-3] = self.cpt["weight"]["emb_g.weight"].shape[0]
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")

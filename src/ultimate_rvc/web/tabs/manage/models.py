@@ -294,7 +294,7 @@ def _render_upload_tab(event_state: ManageModelEventState) -> None:
                 )
                 gr.Markdown(
                     "2. Upload the files directly or save them to a folder, then"
-                    " compress that folder and upload the resulting .zip file",
+                    " compress that folder and upload the resulting .zip, .rar, or .7z file",
                 )
                 gr.Markdown("3. Enter a unique name for the uploaded model")
                 gr.Markdown("4. Click 'Upload'")
@@ -303,7 +303,7 @@ def _render_upload_tab(event_state: ManageModelEventState) -> None:
                 voice_model_files = gr.File(
                     label="Files",
                     file_count="multiple",
-                    file_types=[".zip", ".pth", ".index"],
+                    file_types=[".zip", ".rar", ".7z", ".pth", ".index"],
                 )
 
                 local_voice_model_name = gr.Textbox(label="Model name")
@@ -333,7 +333,7 @@ def _render_upload_tab(event_state: ManageModelEventState) -> None:
                 )
                 gr.Markdown(
                     "2. Upload the files directly or save them to a folder, then"
-                    " compress that folder and upload the resulting .zip file",
+                    " compress that folder and upload the resulting .zip, .rar, or .7z file",
                 )
                 gr.Markdown("3. Enter a unique name for the uploaded embedder model")
                 gr.Markdown("4. Click 'Upload'")
@@ -342,7 +342,7 @@ def _render_upload_tab(event_state: ManageModelEventState) -> None:
                 embedder_files = gr.File(
                     label="Files",
                     file_count="multiple",
-                    file_types=[".zip", ".json", ".bin"],
+                    file_types=[".zip", ".rar", ".7z", ".json", ".bin"],
                 )
 
                 local_embedder_name = gr.Textbox(label="Model name")

@@ -62,6 +62,7 @@ if TYPE_CHECKING:
 else:
     requests = lazy.load("requests")
     tqdm = lazy.load("tqdm")
+    patoolib = lazy.load("patoolib")
 
 PUBLIC_MODELS_JSON = json_load(Path(__file__).parent / "public_models.json")
 PUBLIC_MODELS_TABLE = VoiceModelMetaDataTable.model_validate(PUBLIC_MODELS_JSON)
@@ -251,8 +252,7 @@ def _extract_voice_model(
     extraction_completed = False
     try:
         extraction_path.mkdir(parents=True)
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(extraction_path)
+        patoolib.extract_archive(str(zip_path), outdir=str(extraction_path), interactive=False)
         file_path_map = {
             ext: Path(root, name)
             for root, _, files in extraction_path.walk()
@@ -452,13 +452,12 @@ def upload_voice_model(files: Sequence[StrPath], name: str) -> None:
         case [file_path]:
             if file_path.suffix == ".pth":
                 copy_files_to_new_dir([file_path], model_dir_path)
-            # NOTE a .pth file is actually itself a zip file
-            elif zipfile.is_zipfile(file_path):
+            elif file_path.suffix.lower() in {".zip", ".rar", ".7z"}:
                 _extract_voice_model(file_path, model_dir_path)
             else:
                 raise UploadTypeError(
                     entity=Entity.FILES,
-                    valid_types=[".pth", ".zip"],
+                    valid_types=[".pth", ".zip", ".rar", ".7z"],
                     type_class="formats",
                     multiple=False,
                 )
@@ -513,8 +512,7 @@ def _extract_custom_embedder_model(
     extraction_completed = False
     try:
         extraction_path.mkdir(parents=True)
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(extraction_path)
+        patoolib.extract_archive(str(zip_path), outdir=str(extraction_path), interactive=False)
         file_path_map = {
             file: Path(root, file)
             for root, _, files in extraction_path.walk()
@@ -584,12 +582,12 @@ def upload_custom_embedder_model(files: Sequence[StrPath], name: str) -> None:
     sorted_file_paths = sorted([Path(f) for f in files], key=lambda f: f.suffix)
     match sorted_file_paths:
         case [file_path]:
-            if zipfile.is_zipfile(file_path):
+            if file_path.suffix.lower() in {".zip", ".rar", ".7z"}:
                 _extract_custom_embedder_model(file_path, model_dir_path)
             else:
                 raise UploadTypeError(
                     entity=Entity.FILES,
-                    valid_types=[".zip"],
+                    valid_types=[".zip", ".rar", ".7z"],
                     type_class="formats",
                     multiple=False,
                 )

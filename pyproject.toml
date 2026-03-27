@@ -29,6 +29,7 @@ dependencies = [
   "tqdm==4.67.1",
   "gradio==5.49.1",
   "pandas-stubs==2.3.3.251201",
+  "patool==2.2.0",
 
   # Machine learning
   "torchcrepe==0.0.24",

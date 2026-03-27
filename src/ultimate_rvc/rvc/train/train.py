@@ -1083,6 +1083,8 @@ def train_and_evaluate(
                 if hasattr(net_g, "module")
                 else net_g.state_dict()
             )
+            # Strip torch.compile's `_orig_mod.` prefix from exported keys
+            ckpt = {k.replace("_orig_mod.", ""): v for k, v in ckpt.items()}
             for m in model_add:
                 extract_model(
                     ckpt=ckpt,
