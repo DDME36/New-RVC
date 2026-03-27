@@ -527,12 +527,12 @@ def run(
                 else:
                     net_g.load_state_dict(ckpt)
                 del ckpt
-            except RuntimeError:
-                logger.error(  # noqa: TRY400
-                    "The parameters of the pretrain model such as the sample rate or"
-                    " architecture do not match the selected model.",
+            except RuntimeError as e:
+                logger.warning(
+                    "Architecture mismatch for Pretrained (G). This usually happens when using advanced "
+                    "vocoders like RingFormer or APEX-GAN with default RVC pretrains. "
+                    "Ignoring default pretrain and training from scratch!"
                 )
-                sys.exit(1)
 
         if pretrain_d not in {"", "None"}:
             if rank == 0:
@@ -546,12 +546,12 @@ def run(
                 else:
                     net_d.load_state_dict(ckpt)
                 del ckpt
-            except RuntimeError:
-                logger.error(  # noqa: TRY400
-                    "The parameters of the pretrain model such as the sample rate or"
-                    " architecture do not match the selected model.",
+            except RuntimeError as e:
+                logger.warning(
+                    "Architecture mismatch for Pretrained (D). This usually happens when using advanced "
+                    "vocoders like RingFormer or APEX-GAN with default RVC pretrains. "
+                    "Ignoring default pretrain and training from scratch!"
                 )
-                sys.exit(1)
 
     # Initialize schedulers
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(

@@ -599,10 +599,10 @@ class TrainingConfig(BaseTabConfig):
         exclude_value=True,
     )
     preprocess_model: DropdownConfig = DropdownConfig(
-        label="Model name",
+        label="Model name (New or Existing)",
         info=(
-            "Name of the model to preprocess the given dataset for. Either select an"
-            " existing model from the dropdown or provide the name of a new model."
+            "Type a new model name to start fresh, or select an existing one to append new audio. "
+            "This name will automatically carry over to Step 2 and Step 3."
         ),
         value="My model",
         allow_custom_value=True,
@@ -676,11 +676,10 @@ class TrainingConfig(BaseTabConfig):
     preprocess_cores: SliderConfig = SliderConfig.cpu_cores()
 
     extract_model: DropdownConfig = DropdownConfig(
-        label="Model name",
+        label="Target Model (Auto-selected from Step 1)",
         info=(
-            "Name of the model with an associated preprocessed dataset to extract"
-            " training features from. When a new dataset is preprocessed, its"
-            " associated model is selected by default."
+            "Name of the model to extract training features for. When a dataset is preprocessed in Step 1, "
+            "its associated model is automatically targeted here."
         ),
         value=None,
         render=False,
@@ -712,10 +711,9 @@ class TrainingConfig(BaseTabConfig):
     extraction_gpus: DropdownConfig = DropdownConfig.gpu()
 
     train_model: DropdownConfig = DropdownConfig(
-        label="Model name",
+        label="Target Model (Resume or Auto-selected)",
         info=(
-            "Name of the model to train. When training features are extracted for a new"
-            " model, its name is selected by default."
+            "Select an existing model here to RESUME training, or leave it as the auto-selected model from Step 1 to start fresh."
         ),
         value=None,
         render=False,
