@@ -386,16 +386,21 @@ def run(
         rank=rank,
         shuffle=True,
     )
+    import multiprocessing
+    hw_cores = multiprocessing.cpu_count()
+    # On 2-vCPU machines (Colab), heavily loading workers causes OS thrashing
+    num_workers = min(hw_cores, 4) if hw_cores > 2 else min(hw_cores, 2)
+    prefetch = 4 if num_workers <= 2 else 8
 
     train_loader = DataLoader(
         train_dataset,
-        num_workers=4,
+        num_workers=num_workers,
         shuffle=False,
         pin_memory=True,
         collate_fn=collate_fn,
         batch_sampler=train_sampler,
         persistent_workers=True,
-        prefetch_factor=8,
+        prefetch_factor=prefetch,
     )
     if len(train_loader) < 3:
         logger.error(
@@ -469,14 +474,6 @@ def run(
     if device.type == "cuda":
         net_g = net_g.cuda(device_id)
         net_d = net_d.cuda(device_id)
-        # Apply standard Pytorch 2.x optimizations if not using multi-gpu distributed training overhead
-        if n_gpus <= 1:
-            try:
-                logger.info("Applying torch.compile (Inductor) for training speedup...")
-                net_g = torch.compile(net_g, backend="inductor")
-                net_d = torch.compile(net_d, backend="inductor")
-            except Exception as e:
-                logger.warning("torch.compile failed, continuing with eager mode: %s", e)
     else:
         net_g = net_g.to(device)
         net_d = net_d.to(device)
