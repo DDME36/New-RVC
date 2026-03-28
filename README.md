@@ -5,6 +5,7 @@
 **High-Performance AI Voice Conversion — Powered by Ultimate RVC Architecture**
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DDME36/NEWRVC/blob/main/NewRVC_Colab.ipynb)
+[![Train In Colab](https://img.shields.io/badge/🎯_Training_Notebook-F9AB00?style=for-the-badge&logo=googlecolab&logoColor=white)](https://colab.research.google.com/github/DDME36/NEWRVC/blob/main/NewRVC_Training.ipynb)
 
 </div>
 
@@ -44,6 +45,32 @@ A meticulously crafted `#ef4444` red accent theme with Google's Asap font — pr
 Don't have a strong GPU? Run New RVC directly in the cloud:
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DDME36/NEWRVC/blob/main/NewRVC_Colab.ipynb)
+
+## 🎯 Training Notebook (Recommended for Training)
+
+For **dedicated voice model training**, use the standalone training notebook instead of the Gradio UI.
+It calls the training functions directly — no UI overhead, no event loop — resulting in **significantly faster training**:
+
+[![Open Training Notebook](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DDME36/NEWRVC/blob/main/NewRVC_Training.ipynb)
+
+### Why use the Training Notebook?
+
+| | Gradio UI | Training Notebook |
+|---|-----------|-------------------|
+| **Speed** | Slower (UI rendering, websocket) | ⚡ Direct function calls |
+| **Hyperparameters** | Limited controls | Full control (LR, decay, seed) |
+| **Monitoring** | Log output only | TensorBoard integration |
+| **VRAM** | Higher (UI + model) | Lower (model only) |
+
+### Recommended Settings
+
+| Use Case | Dataset | Epochs | Batch | Vocoder | LR | Precision |
+|----------|---------|--------|-------|---------|----|-----------|
+| 🎙️ Speech | 10-30 min | 200-400 | 8-12 | HiFi-GAN | 1e-4 | FP16 |
+| 🎵 Singing | 30-60 min | 400-800 | 6-8 | RingFormer_v2 | 5e-5 | BF16 |
+| 🔄 Cross-Gender | 30-60 min | 500-800 | 6-8 | RefineGAN | 5e-5 | FP16 |
+
+> **Note:** RingFormer and APEX-GAN don't have pretrained models yet — use `Pretrained=None` and train longer (800+ epochs).
 
 ## 💻 Local Setup
 
