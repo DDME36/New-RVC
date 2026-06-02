@@ -87,22 +87,21 @@ avg_losses = {
 def find_free_port() -> int:
     """Find a free port that is not reserved by the OS.
 
-    Uses socket binding to ensure port is actually available,
-    preventing Windows permission errors (errno 10013) with
-    reserved ports.
+    Uses socket binding on 127.0.0.1 to ensure port is actually available locally,
+    preventing Windows permission errors (errno 10013) with reserved/protected ports.
 
     """
     for _ in range(20):
         port = randint(29500, 49999)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("", port))
+                s.bind(("127.0.0.1", port))
                 return port
         except OSError:
             continue
-    # Fallback: let the OS assign a port
+    # Fallback: let the OS assign a port locally
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
+        s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
@@ -202,9 +201,9 @@ def main(
     config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
 
     # Set up distributed training environment for master node.
-    # master node is localhost because we are running on a single local
-    # machine. master port is randomly selected
-    os.environ["MASTER_ADDR"] = "localhost"
+    # master node is localhost (127.0.0.1) because we are running on a single local
+    # machine. Using 127.0.0.1 avoids IPv6 and hostname resolution issues on Windows/Colab.
+    os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = str(find_free_port())
     logger.info("MASTER_PORT: %s", os.environ["MASTER_PORT"])
     # Check sample rate

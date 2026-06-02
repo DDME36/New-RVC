@@ -1096,18 +1096,24 @@ def run_pipeline(
         dry_level,
         damping,
     )
-    display_progress("[~] Pitch-shifting instrumentals...", 6 / 9, progress_bar)
-    shifted_instrumentals_track = pitch_shift(
-        instrumentals_track,
-        song_dir,
-        n_semitones,
-    )
-    display_progress("[~] Pitch-shifting backup vocals...", 7 / 9, progress_bar)
-    shifted_backup_vocals_track = pitch_shift(
-        backup_vocals_track,
-        song_dir,
-        n_semitones,
-    )
+    display_progress("[~] Pitch-shifting instrumentals and backup vocals in parallel...", 6 / 9, progress_bar)
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_inst = executor.submit(
+            pitch_shift,
+            instrumentals_track,
+            song_dir,
+            n_semitones,
+        )
+        future_backup = executor.submit(
+            pitch_shift,
+            backup_vocals_track,
+            song_dir,
+            n_semitones,
+        )
+        shifted_instrumentals_track = future_inst.result()
+        shifted_backup_vocals_track = future_backup.result()
+
 
     song_cover = mix_song(
         [
